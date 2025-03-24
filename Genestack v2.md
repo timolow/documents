@@ -174,65 +174,23 @@ kubectl apply -f /etc/genestack/manifests/metallb/metallb-openstack-service-lb.y
 
 
 --------
-#install_gateway_api
-
+#install_envoy
 
 
 ```
-kubectl create ns nginx-gateway
-
-kubectl apply -f /opt/genestack/manifests/nginx-gateway/nginx-gateway-namespace.yaml
-
-kubectl kustomize "https://github.com/nginxinc/nginx-gateway-fabric/config/crd/gateway-api/standard?ref=v1.4.0" | kubectl apply -f -
-
-echo "---" | tee /etc/genestack/helm-configs/nginx-gateway-fabric/helm-overrides.yaml
-
-pushd /opt/genestack/submodules/nginx-gateway-fabric/charts || exit 1
-helm upgrade --install nginx-gateway-fabric ./nginx-gateway-fabric \
-    --namespace=nginx-gateway \
-    --create-namespace \
-    -f /opt/genestack/base-helm-configs/nginx-gateway-fabric/helm-overrides.yaml \
-    -f /etc/genestack/helm-configs/nginx-gateway-fabric/helm-overrides.yaml \
-    --post-renderer /etc/genestack/kustomize/kustomize.sh \
-    --post-renderer-args gateway/overlay
-popd || exit 1
-
-kubectl rollout restart deployment cert-manager --namespace cert-manager
-
-kubectl kustomize /etc/genestack/kustomize/gateway/nginx-gateway-fabric | kubectl apply -f -
+/opt/genestack/bin/install-envoy-gateway.sh
+/opt/genestack/bin/setup-envoy-gateway.sh
 ```
+#monitor_envoy
 
-#patch_listeners_and_routes
-
-
-> [!note] Edit FQDN for your use case
-> sed 's/your.domain.tld/YOUR_DOMAIN_GOES_HERE/g' 
-
-
-```shell
-mkdir -p /etc/genestack/gateway-api/listeners
-for listener in $(ls -1 /opt/genestack/etc/gateway-api/listeners); do
-    sed 's/your.domain.tld/underworld.local/g' /opt/genestack/etc/gateway-api/listeners/$listener > /etc/genestack/gateway-api/listeners/$listener
-done
-
-kubectl patch -n nginx-gateway gateway flex-gateway \
-              --type='json' \
-              --patch="$(jq -s 'flatten | .' /etc/genestack/gateway-api/listeners/*)"
-
-mkdir -p /etc/genestack/gateway-api/routes
-for route in $(ls -1 /opt/genestack/etc/gateway-api/routes); do
-    sed 's/your.domain.tld/underworld.local/g' /opt/genestack/etc/gateway-api/routes/$route > /etc/genestack/gateway-api/routes/$route
-done
 ```
-
-#apply_routes_and_listeners
-
-```shell
-kubectl apply -f /etc/genestack/gateway-api/routes
+kubectl -n openstack get httproute
+kubectl -n envoy-gateway get gateways.gateway.networking.k8s.io flex-gateway
 ```
 
 -------
 #mariadb
+
 
 ```shell
 cluster_name=`kubectl config view --minify -o jsonpath='{.clusters[0].name}'`
@@ -362,3 +320,9 @@ kubectl --namespace openstack apply -f /etc/genestack/manifests/utils/utils-open
 kubectl --namespace openstack exec -ti openstack-admin-client -- openstack user list
 ```
 
+```shell
+openstack  network create --share --availability-zone-hint az1 --external --provider-network-type flat --provider-physical-network physnet1 PUBLICNET 
+
+openstack subnet create --subnet-range 172.29.241.0/24 --gateway 172.29.241.1 --dns-nameserver 1.1.1.1 --allocation-pool start=172.29.241.50,end=172.29.241.250  --network PUBLICNET PUBLICNET_SUBNET 
+
+```
